@@ -1,0 +1,879 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model SequelizeMeta {
+  name String @id @unique(map: "name") @db.VarChar(255)
+}
+
+model candidatos {
+  id               Int                     @id @default(autoincrement())
+  nome             String                  @db.VarChar(60)
+  rg               String?                 @db.VarChar(30)
+  cpf              String?                 @db.VarChar(14)
+  cnh              String?                 @db.VarChar(30)
+  categoria        candidatos_categoria?
+  tituloEleitor    String?                 @db.VarChar(30)
+  zonaEleitoral    String?                 @db.VarChar(50)
+  cidadeEleitoral  String?                 @db.VarChar(50)
+  secao            String?                 @db.VarChar(45)
+  dependentes      Int?                    @default(0)
+  areaAtuacao      String?                 @db.VarChar(50)
+  areaAtuacao2     String?                 @db.VarChar(50)
+  areaAtuacao3     String?                 @db.VarChar(50)
+  areaAtuacao4     String?                 @db.VarChar(50)
+  areaAtuacao5     String?                 @db.VarChar(50)
+  estCivil         candidatos_estCivil?
+  email            String?                 @db.VarChar(50)
+  dataNascimento   DateTime                @db.DateTime(0)
+  contato          String?                 @db.VarChar(20)
+  telefone2        String?                 @db.VarChar(20)
+  cep              String?                 @db.VarChar(10)
+  endereco         String?                 @db.VarChar(100)
+  numero           String?                 @db.VarChar(15)
+  bairro           String?                 @db.VarChar(50)
+  uf               String?                 @db.VarChar(2)
+  cidade           String?                 @db.VarChar(50)
+  pontoReferencia  String?                 @db.VarChar(100)
+  status           candidatos_status
+  departamento     candidatos_departamento
+  expProfissional  String?                 @db.VarChar(400)
+  obs              String?                 @db.VarChar(300)
+  documentos       String?                 @db.VarChar(300)
+  createdAt        DateTime                @default(now()) @db.DateTime(0)
+  updatedAt        DateTime                @default(now()) @db.DateTime(0)
+  historicoEmpresa historicoEmpresa[]
+}
+
+model categorias {
+  id        Int      @id @default(autoincrement())
+  categoria String   @db.VarChar(150)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime @default(now()) @db.DateTime(0)
+}
+
+model cliente {
+  id              Int                @id @default(autoincrement())
+  status          cliente_status
+  email           String?            @db.VarChar(50)
+  indicacao       String?            @db.VarChar(50)
+  contato         String?            @db.VarChar(20)
+  cnpj            String?            @db.VarChar(30)
+  cpf             String?            @db.VarChar(30)
+  razaoSocial     String             @db.VarChar(60)
+  fantasia        String?            @db.VarChar(60)
+  cep             String?            @db.VarChar(255)
+  endereco        String?            @db.VarChar(255)
+  num             String?            @db.VarChar(15)
+  bairro          String?            @db.VarChar(20)
+  uf              String?            @db.VarChar(15)
+  cidade          String?            @db.VarChar(50)
+  pontoReferencia String?            @db.VarChar(255)
+  telefone_2      String?            @db.VarChar(255)
+  contador        String?            @db.VarChar(255)
+  situacao        cliente_situacao   @default(Liberado)
+  obs             String?            @db.VarChar(300)
+  prioridade      cliente_prioridade
+  createdAt       DateTime           @default(now()) @db.DateTime(0)
+  updatedAt       DateTime           @default(now()) @db.DateTime(0)
+  contasreceber   contasreceber[]
+  operacoes       operacoes[]
+  pets            pets[]
+}
+
+model contasapagar {
+  id            Int                   @id @default(autoincrement())
+  cnpj          String?               @db.VarChar(30)
+  fornecedor    String                @db.VarChar(60)
+  historico     String?               @db.VarChar(60)
+  situacao      contasapagar_situacao @default(Aberta)
+  vencimento    DateTime              @db.DateTime(0)
+  dataPagamento DateTime?             @db.DateTime(0)
+  valorTotal    Float?                @db.Float
+  parcelas      Int?                  @default(1)
+  juros         Float?                @db.Float
+  desconto      Float?                @db.Float
+  valorPago     Float?                @db.Float
+  valorEmAberto Float?                @db.Float
+  empresa       String                @db.VarChar(50)
+  categoria     String                @db.VarChar(150)
+  recibo        String?               @db.VarChar(100)
+  obs           String?               @db.VarChar(255)
+  createdAt     DateTime              @default(now()) @db.DateTime(0)
+  updatedAt     DateTime              @default(now()) @db.DateTime(0)
+}
+
+model contasreceber {
+  id               Int                  @id @default(autoincrement())
+  status           contasreceber_status
+  clienteId        Int
+  vencimento       DateTime             @db.DateTime(0)
+  valorReceber     Decimal              @db.Decimal(10, 2)
+  parcelas         Int
+  formaPagamento   String?              @default("null") @db.VarChar(255)
+  dataReceber      DateTime?            @db.DateTime(0)
+  pagamentoParcial Float?               @db.Float
+  valorPago        Float?               @db.Float
+  juros            Decimal?             @db.Decimal(10, 2)
+  multa            Decimal?             @db.Decimal(10, 2)
+  custos           Decimal?             @default(0.00) @db.Decimal(10, 2)
+  descontos        Float?               @db.Float
+  valorEmAberto    Decimal?             @db.Decimal(10, 2)
+  cpfCnpj          String?              @db.VarChar(30)
+  recibo           String?              @db.VarChar(100)
+  obs              String?              @db.VarChar(255)
+  empresa          String               @db.VarChar(50)
+  categoria        String?              @db.VarChar(150)
+  createdAt        DateTime             @default(now()) @db.DateTime(0)
+  updatedAt        DateTime             @default(now()) @db.DateTime(0)
+  cliente          cliente              @relation(fields: [clienteId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "contasreceber_ibfk_1")
+
+  @@index([clienteId], map: "clienteId")
+}
+
+model demandas {
+  id                   Int                      @id @default(autoincrement())
+  protocolo            String                   @db.VarChar(20)
+  solicitant           String                   @db.VarChar(150)
+  setor                String                   @db.VarChar(100)
+  prioridade           demandas_prioridade
+  status               demandas_status
+  dataSolicitacao      DateTime                 @db.DateTime(0)
+  dataTermino          DateTime?                @db.DateTime(0)
+  cep                  String?                  @db.VarChar(255)
+  endereco             String?                  @db.VarChar(255)
+  bairro               String?                  @db.VarChar(80)
+  num                  String?                  @db.VarChar(15)
+  zona                 String?                  @db.VarChar(35)
+  pontoReferencia      String?                  @db.VarChar(255)
+  reincidencia         demandas_reincidencia
+  meioSolicitacao      demandas_meioSolicitacao
+  solicitanteId        Int
+  anexarDocumentos     String?                  @db.VarChar(300)
+  envioCobranca1       String?                  @db.VarChar(80)
+  envioCobranca2       String?                  @db.VarChar(80)
+  envioParaResponsavel String?                  @db.VarChar(80)
+  observacoes          String?                  @db.VarChar(300)
+  createdAt            DateTime                 @default(now()) @db.DateTime(0)
+  updatedAt            DateTime                 @default(now()) @db.DateTime(0)
+  solicitantes         solicitantes             @relation(fields: [solicitanteId], references: [id], onUpdate: Restrict, map: "demandas_ibfk_1")
+  indicadoPor          String?
+
+  @@index([solicitanteId], map: "demandas_ibfk_1")
+}
+
+model exameFisico {
+  id                        Int                         @id @default(autoincrement())
+  petId                     Int?
+  parceiroId                Int?
+  frequenciaCardiaca        Float?                      @db.Float
+  frequenciaRespiratoria    Float?                      @db.Float
+  temperatura               Float?                      @db.Float
+  tempoPreenchimentoCapilar Float?                      @db.Float
+  mucosas                   exameFisico_mucosas
+  desidratacao              exameFisico_desidratacao
+  estadoCorporal            exameFisico_estadoCorporal?
+  linfonodos                String?                     @db.Text
+  linfonodosObs             String?                     @db.Text
+  observacoesRespiratorias  String?                     @db.Text
+  pressaoArterial           Float?                      @db.Float
+  descricaoGeral            String?                     @db.Text
+  createdAt                 DateTime                    @default(now()) @db.DateTime(0)
+  updatedAt                 DateTime                    @default(now()) @db.DateTime(0)
+  pets                      pets?                       @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "exameFisico_ibfk_1")
+  parceiros                 parceiros?                  @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "exameFisico_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model formapagamento {
+  id        Int      @id @default(autoincrement())
+  tipo      String   @unique(map: "tipo") @db.VarChar(15)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime @default(now()) @db.DateTime(0)
+}
+
+model historicoConsulta {
+  id        Int      @id @default(autoincrement())
+  petId     Int
+  consulta  DateTime @db.DateTime(0)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime @default(now()) @db.DateTime(0)
+
+  @@index([petId], map: "historicoconsulta_ibfk_1")
+}
+
+model historicoEmpresa {
+  id           Int        @id @default(autoincrement())
+  empregoId    Int
+  empresas     String?    @db.VarChar(50)
+  funcao       String?    @db.VarChar(30)
+  data         DateTime?  @db.DateTime(0)
+  dataDemissao DateTime?  @db.DateTime(0)
+  createdAt    DateTime   @default(now()) @db.DateTime(0)
+  updatedAt    DateTime   @default(now()) @db.DateTime(0)
+  candidatos   candidatos @relation(fields: [empregoId], references: [id], onDelete: Cascade, map: "historicoEmpresa_ibfk_1")
+
+  @@index([empregoId], map: "empregoId")
+}
+
+model historicoPesos {
+  id           Int      @id @default(autoincrement())
+  petId        Int
+  peso         Float    @db.Float
+  dataRegistro DateTime @db.DateTime(0)
+  createdAt    DateTime @default(now()) @db.DateTime(0)
+  updatedAt    DateTime @default(now()) @db.DateTime(0)
+  pets         pets     @relation(fields: [petId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "historicoPesos_ibfk_1")
+
+  @@index([petId], map: "petId")
+}
+
+model manejo {
+  id                      Int                             @id @default(autoincrement())
+  petId                   Int?
+  parceiroId              Int?
+  alimentacao             String?                         @db.VarChar(300)
+  tipoAlimentacao         manejo_tipoAlimentacao?
+  horariosAlimentacao     String?                         @db.Text
+  acessoAguaFresca        Boolean?
+  ambiente                manejo_ambiente?
+  atividadeFisica         String?                         @db.Text
+  contatoComOutrosAnimais manejo_contatoComOutrosAnimais?
+  createdAt               DateTime                        @default(now()) @db.DateTime(0)
+  updatedAt               DateTime                        @default(now()) @db.DateTime(0)
+  pets                    pets?                           @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "manejo_ibfk_1")
+  parceiros               parceiros?                      @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "manejo_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model mensagens {
+  id              Int                       @id @default(autoincrement())
+  titulo          String                    @db.VarChar(30)
+  dias_relativos  Int
+  mensagem        String                    @db.VarChar(500)
+  antes_ou_depois mensagens_antes_ou_depois
+  tipo            mensagens_tipo
+  createdAt       DateTime                  @default(now()) @db.DateTime(0)
+  updatedAt       DateTime                  @default(now()) @db.DateTime(0)
+}
+
+model operacoes {
+  id            Int               @id @default(autoincrement())
+  status        operacoes_status  @default(Aberto)
+  motivo        operacoes_motivo?
+  atividade     String            @db.VarChar(255)
+  startDate     DateTime          @db.DateTime(0)
+  endDate       DateTime?         @db.DateTime(0)
+  closingDate   DateTime?         @db.DateTime(0)
+  startTime     DateTime          @db.DateTime(0)
+  endTime       DateTime?         @db.DateTime(0)
+  valorOperacao Float             @default(0) @db.Float
+  userId        Int
+  clienteId     Int?
+  obs           String?           @db.VarChar(300)
+  createdAt     DateTime          @db.DateTime(0)
+  updatedAt     DateTime          @db.DateTime(0)
+  usuarios      usuarios          @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "operacoes_ibfk_1")
+  cliente       cliente?          @relation(fields: [clienteId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "operacoes_ibfk_2")
+
+  @@index([clienteId], map: "clienteId")
+  @@index([userId], map: "userId")
+}
+
+model parceiros {
+  id                 Int                  @id @default(autoincrement())
+  status             parceiros_status
+  senha              String               @db.VarChar(255)
+  email              String               @db.VarChar(50)
+  contato            String?              @db.VarChar(20)
+  cnpj               String?              @db.VarChar(30)
+  cpf                String?              @db.VarChar(30)
+  razaoSocial        String               @db.VarChar(60)
+  fantasia           String?              @db.VarChar(60)
+  cep                String?              @db.VarChar(255)
+  endereco           String?              @db.VarChar(255)
+  num                String?              @db.VarChar(15)
+  bairro             String?              @db.VarChar(20)
+  uf                 String?              @db.VarChar(15)
+  cidade             String?              @db.VarChar(50)
+  pontoReferencia    String?              @db.VarChar(255)
+  telefone_2         String?              @db.VarChar(255)
+  obsEnd             String?              @db.VarChar(50)
+  obs                String?              @db.VarChar(300)
+  rule               Int                  @default(2)
+  createdAt          DateTime             @default(now()) @db.DateTime(0)
+  updatedAt          DateTime             @default(now()) @db.DateTime(0)
+  tipoId             Int?
+  exameFisico        exameFisico[]
+  manejo             manejo[]
+  sistemaCardio      sistemaCardio[]
+  sistemaGastro      sistemaGastro[]
+  sistemaLocomotor   sistemaLocomotor[]
+  sistemaNeurologico sistemaNeurologico[]
+  sistemaTegumentar  sistemaTegumentar[]
+  sistemaUrinario    sistemaUrinario[]
+
+  @@index([tipoId], map: "parceiro_ibfk_1_idx")
+}
+
+model petVacinas {
+  id                  Int       @id @default(autoincrement())
+  petId               Int?
+  vacinaId            Int?
+  vacinasAplicadas    Json?
+  dataUltimaVacinacao DateTime? @db.DateTime(0)
+  historicoMedico     Json?
+  alergias            String?   @db.VarChar(200)
+  createdAt           DateTime  @default(now()) @db.DateTime(0)
+  updatedAt           DateTime  @default(now()) @db.DateTime(0)
+  pets                pets?     @relation(fields: [petId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "petVacinas_ibfk_1")
+  vacinas             vacinas?  @relation(fields: [vacinaId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "petVacinas_ibfk_2")
+
+  @@index([petId], map: "petVacinas_ibfk_1")
+  @@index([vacinaId], map: "vacinaId")
+}
+
+model pets {
+  id                 Int                  @id @default(autoincrement())
+  nomePet            String               @db.VarChar(50)
+  clienteId          Int
+  raca               String               @db.VarChar(50)
+  dataNascimento     DateTime?            @db.DateTime(0)
+  especie            String               @db.VarChar(50)
+  pelagem            pets_pelagem
+  corPelo            String?              @db.VarChar(30)
+  sexo               pets_sexo
+  numeroChip         BigInt?              @unique(map: "numeroChip")
+  porte              pets_porte
+  situacao           pets_situacao        @default(VIVO)
+  pesoAtual          Float?               @db.Float
+  obs                String?              @db.VarChar(300)
+  createdAt          DateTime             @default(now()) @db.DateTime(0)
+  updatedAt          DateTime             @default(now()) @db.DateTime(0)
+  exameFisico        exameFisico[]
+  historicoPesos     historicoPesos[]
+  manejo             manejo[]
+  petVacinas         petVacinas[]
+  cliente            cliente              @relation(fields: [clienteId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "pets_ibfk_1")
+  sistemaCardio      sistemaCardio[]
+  sistemaGastro      sistemaGastro[]
+  sistemaLocomotor   sistemaLocomotor[]
+  sistemaNeurologico sistemaNeurologico[]
+  sistemaTegumentar  sistemaTegumentar[]
+  sistemaUrinario    sistemaUrinario[]
+
+  @@index([clienteId], map: "clienteId")
+}
+
+model racas {
+  id        Int      @id @default(autoincrement())
+  raca      String?  @db.VarChar(50)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime @default(now()) @db.DateTime(0)
+}
+
+model setores {
+  id        Int        @id @default(autoincrement())
+  setor     String?    @db.VarChar(50)
+  createdAt DateTime   @default(now()) @db.DateTime(0)
+  updatedAt DateTime   @default(now()) @db.DateTime(0)
+  usuarios  usuarios[]
+}
+
+model sistemaCardio {
+  id                Int                     @id @default(autoincrement())
+  petId             Int?
+  parceiroId        Int?
+  secrecao          sistemaCardio_secrecao?
+  descricao         String?                 @db.VarChar(300)
+  sincope           Boolean?
+  tosse             Boolean?
+  espirro           Boolean?
+  districao_resp    Boolean?
+  cianose           Boolean?
+  intolerancia_exer Boolean?
+  cansacoFacil      Boolean?
+  createdAt         DateTime                @default(now()) @db.DateTime(0)
+  updatedAt         DateTime                @default(now()) @db.DateTime(0)
+  pets              pets?                   @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaCardio_ibfk_1")
+  parceiros         parceiros?              @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaCardio_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model sistemaGastro {
+  id           Int                   @id @default(autoincrement())
+  petId        Int?
+  parceiroId   Int?
+  apetite      sistemaGastro_apetite
+  frequencia   String?               @db.VarChar(300)
+  coloracao    String?               @db.VarChar(300)
+  hematemese   Boolean?
+  diarreia     Boolean?
+  melena       Boolean?
+  hematoquesia Boolean?
+  disquesia    Boolean?
+  tenesmo      Boolean?
+  aquesia      Boolean?
+  createdAt    DateTime              @default(now()) @db.DateTime(0)
+  updatedAt    DateTime              @default(now()) @db.DateTime(0)
+  pets         pets?                 @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaGastro_ibfk_1")
+  parceiros    parceiros?            @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaGastro_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model sistemaLocomotor {
+  id                    Int        @id @default(autoincrement())
+  petId                 Int?
+  parceiroId            Int?
+  claudicacao           String?    @db.VarChar(150)
+  dorTransporObstaculos String?    @db.VarChar(150)
+  paresia               String?    @db.VarChar(150)
+  impoteciaFuncional    String?    @db.VarChar(150)
+  inflamacao            Boolean?
+  edema                 Boolean?
+  deformidade           Boolean?
+  restricaoMovimento    Boolean?
+  descricaoGeral        String?    @db.Text
+  createdAt             DateTime   @default(now()) @db.DateTime(0)
+  updatedAt             DateTime   @default(now()) @db.DateTime(0)
+  pets                  pets?      @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaLocomotor_ibfk_1")
+  parceiros             parceiros? @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaLocomotor_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model sistemaNeurologico {
+  id                      Int        @id @default(autoincrement())
+  petId                   Int?
+  parceiroId              Int?
+  convulsoes              String?    @db.VarChar(150)
+  alteracaoComportamental String?    @db.VarChar(150)
+  andarEmCirculo          Boolean?
+  headTilt                Boolean?
+  nistagmo                Boolean?
+  paralisia               Boolean?
+  tremores                Boolean?
+  ataxia                  Boolean?
+  reflexosAlterados       Boolean?
+  descricaoGeral          String?    @db.Text
+  createdAt               DateTime   @default(now()) @db.DateTime(0)
+  updatedAt               DateTime   @default(now()) @db.DateTime(0)
+  pets                    pets?      @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaNeurologico_ibfk_1")
+  parceiros               parceiros? @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaNeurologico_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model sistemaTegumentar {
+  id                   Int        @id @default(autoincrement())
+  petId                Int?
+  parceiroId           Int?
+  prurido              String?    @db.VarChar(320)
+  alopecia             String?    @db.VarChar(320)
+  descamacao           String?    @db.VarChar(320)
+  meneiosCefalicos     Boolean?
+  secrecaoOtologica    Boolean?
+  puliciose            Boolean?
+  infestacaoCarrapatos Boolean?
+  hiperqueratose       Boolean?
+  pustulas             Boolean?
+  eritema              Boolean?
+  edema                Boolean?
+  nodulosOuMassas      Boolean?
+  corTexturaPelo       String?    @db.Text
+  descricaoGeral       String?    @db.Text
+  createdAt            DateTime   @default(now()) @db.DateTime(0)
+  updatedAt            DateTime   @default(now()) @db.DateTime(0)
+  pets                 pets?      @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaTegumentar_ibfk_1")
+  parceiros            parceiros? @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaTegumentar_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model sistemaUrinario {
+  id                Int                               @id @default(autoincrement())
+  petId             Int?
+  parceiroId        Int?
+  disfuncaoHidrica  sistemaUrinario_disfuncaoHidrica?
+  crias             sistemaUrinario_crias?
+  coloracao         String?                           @db.VarChar(50)
+  volume            String?                           @db.VarChar(50)
+  frequencia        String?                           @db.VarChar(50)
+  odor              String?                           @db.VarChar(50)
+  hematuria         Boolean?
+  disuria           Boolean?
+  cristaluria       Boolean?
+  bacteriuria       Boolean?
+  piuria            Boolean?
+  estranguria       Boolean?
+  secrecao          Boolean?
+  castrado          Boolean?
+  partosNormais     Boolean?
+  anticoncepcional  Boolean?
+  cioRegular        Boolean?
+  outrasAlteracoes  String?                           @db.VarChar(300)
+  observacoesGerais String?                           @db.Text
+  ultimoCio         DateTime?                         @db.DateTime(0)
+  createdAt         DateTime                          @default(now()) @db.DateTime(0)
+  updatedAt         DateTime                          @default(now()) @db.DateTime(0)
+  pets              pets?                             @relation(fields: [petId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaUrinario_ibfk_1")
+  parceiros         parceiros?                        @relation(fields: [parceiroId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "sistemaUrinario_ibfk_2")
+
+  @@index([parceiroId], map: "parceiroId")
+  @@index([petId], map: "petId")
+}
+
+model solicitantes {
+  id               Int        @id @default(autoincrement())
+  solicitante      String?    @db.VarChar(150)
+  nomeCompleto     String?    @db.VarChar(200)
+  cpf              String?    @db.VarChar(30)
+  titulo           String?    @db.VarChar(100)
+  telefoneContato  String?    @db.VarChar(20)
+  telefoneContato2 String?    @db.VarChar(20)
+  email            String?    @db.VarChar(100)
+  cep              String?    @db.VarChar(255)
+  endereco         String?    @db.VarChar(255)
+  bairro           String?    @db.VarChar(80)
+  num              String?    @db.VarChar(15)
+  zona             String?    @db.VarChar(35)
+  pontoReferencia  String?    @db.VarChar(255)
+  indicadoPor      String?
+  secaoEleitoral   String?    @db.VarChar(45)
+  createdAt        DateTime   @default(now()) @db.DateTime(0)
+  updatedAt        DateTime   @default(now()) @db.DateTime(0)
+  demandas         demandas[]
+}
+
+model solicitantes_unicos {
+  id               Int      @id @default(autoincrement())
+  solicitante      String?  @db.VarChar(150)
+  nomeCompleto     String?  @db.VarChar(200)
+  cpf              String?  @db.VarChar(30)
+  titulo           String?  @db.VarChar(100)
+  telefoneContato  String?  @db.VarChar(20)
+  telefoneContato2 String?  @db.VarChar(20)
+  email            String?  @db.VarChar(100)
+  cep              String?  @db.VarChar(255)
+  endereco         String?  @db.VarChar(255)
+  bairro           String?  @db.VarChar(80)
+  num              String?  @db.VarChar(15)
+  zona             String?  @db.VarChar(35)
+  pontoReferencia  String?  @db.VarChar(255)
+  secaoEleitoral   String?  @db.VarChar(45)
+  indicadoPor      String?
+  meio             String?
+  createdAt        DateTime @default(now()) @db.DateTime(0)
+  updatedAt        DateTime @default(now()) @db.DateTime(0)
+  senha            String?  @db.VarChar(255)
+  adm              Boolean  @default(false)
+  zonaEleitoral    String?
+  observacoes      String?  @db.Text
+  liderId          Int?     // Chave estrangeira opcional
+  lider            Lider?   @relation(fields: [liderId], references: [id], onDelete: SetNull)
+}
+
+model demandas_deletadas {
+  id                  Int      @id @default(autoincrement())
+  demandaId           Int
+  protocolo           String?
+  setor               String?
+  prioridade          String?
+  status              String?
+  dataSolicitacao     DateTime?
+  dataTermino         DateTime?
+  solicitant          String?
+  reincidencia        String?
+  meioSolicitacao     String?
+  anexarDocumentos    String?
+  envioCobranca1      String?
+  envioCobranca2      String?
+  envioParaResponsavel String?
+  observacoes         String?
+  solicitanteId       Int?
+  indicadoPor         String?
+
+  deletadoPor         Int
+  deletadoEm          DateTime @default(now())
+}
+
+
+model tipo {
+  id        Int      @id @default(autoincrement())
+  comercio  String?  @db.VarChar(50)
+  createdAt DateTime @default(now()) @db.DateTime(0)
+  updatedAt DateTime @default(now()) @db.DateTime(0)
+}
+
+model tokensenha {
+  id        Int      @id @default(autoincrement())
+  token     String   @db.VarChar(100)
+  userId    Int
+  used      Int      @default(0)
+  createdAt DateTime @db.DateTime(0)
+  updatedAt DateTime @db.DateTime(0)
+  usuarios  usuarios @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "tokensenha_ibfk_1")
+
+  @@index([userId], map: "userId")
+}
+
+model usuarios {
+  id         Int          @id @default(autoincrement())
+  nome       String       @db.VarChar(255)
+  senha      String       @db.VarChar(255)
+  email      String       @unique(map: "email") @db.VarChar(255)
+  empresa    String?      @db.VarChar(255)
+  rule       Int          @default(0)
+  setorId    Int?
+  createdAt  DateTime     @db.DateTime(0)
+  updatedAt  DateTime     @db.DateTime(0)
+  adm        Boolean      @default(true)
+  operacoes  operacoes[]
+  tokensenha tokensenha[]
+  setores    setores?     @relation(fields: [setorId], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "usuarios_ibfk_1")
+
+  @@index([setorId], map: "setorId")
+}
+
+model vacinas {
+  id         Int          @id @default(autoincrement())
+  nomeVacina String?      @db.VarChar(70)
+  createdAt  DateTime     @default(now()) @db.DateTime(0)
+  updatedAt  DateTime     @default(now()) @db.DateTime(0)
+  petVacinas petVacinas[]
+}
+
+model Lider {
+  id           Int                    @id @default(autoincrement())
+  nome         String
+  bairro       String
+
+  solicitantes solicitantes_unicos[] // relação inversa
+
+  @@map("lideres") // nome da tabela no banco
+}
+
+
+
+
+enum cliente_status {
+  Ativo
+  Inativo
+}
+
+enum contasreceber_status {
+  Aberto
+  Fechado
+  Parcial
+  Atrasado
+}
+
+enum operacoes_status {
+  Finalizado
+  Aberto
+  Cancelado
+  Andamento
+  Atrasado
+}
+
+enum parceiros_status {
+  Ativo
+  Desativado
+}
+
+enum operacoes_motivo {
+  Sem_exito  @map("Sem exito")
+  Sem_Perfil @map("Sem Perfil")
+  Pausado
+}
+
+enum sistemaCardio_secrecao {
+  Nasal
+  Ocular
+  Nasal_e_Ocular @map("Nasal e Ocular")
+  Nenhuma
+}
+
+enum sistemaGastro_apetite {
+  Normorexia
+  Anorexia
+  Hipofagia
+  Polifagia
+}
+
+enum sistemaUrinario_disfuncaoHidrica {
+  Normodipsia
+  Adepsia
+  Polidipsia
+  Oligodipsia
+}
+
+enum contasapagar_situacao {
+  Paga
+  Aberta
+  Pago_parcial @map("Pago parcial")
+  Atrasado
+}
+
+enum demandas_prioridade {
+  P0
+  P1
+  P2
+  P3
+}
+
+enum manejo_tipoAlimentacao {
+  Ra__o          @map("Ração")
+  Comida_Natural @map("Comida Natural")
+  Ambos
+  Outro
+}
+
+enum mensagens_antes_ou_depois {
+  antes
+  depois
+}
+
+enum sistemaUrinario_crias {
+  Nulipara
+  Primipara
+  Pluripara
+  Nenhuma
+}
+
+enum candidatos_categoria {
+  A
+  AB
+  B
+  AC
+  C
+  AD
+  D
+  AE
+  E
+  NaoTem
+}
+
+enum demandas_status {
+  Pendente
+  Aguardando_Retorno @map("Aguardando Retorno")
+  Cancelada
+  Conclu_da          @map("Concluída")
+}
+
+enum mensagens_tipo {
+  lembrete
+  cobran_a @map("cobrança")
+}
+
+enum pets_pelagem {
+  PELO_CURTO @map("PELO CURTO")
+  PELO_MEDIO @map("PELO MEDIO")
+  PELO_LONGO @map("PELO LONGO")
+}
+
+enum exameFisico_mucosas {
+  Normal
+  Cianotica
+  Hipocorada
+  Icteria
+  Perlacia
+}
+
+enum manejo_ambiente {
+  Interno
+  Externo
+  Ambos
+}
+
+enum exameFisico_desidratacao {
+  Hidratado
+  Leve
+  Moderado
+  Grave
+}
+
+enum pets_sexo {
+  MACHO
+  F_MEA @map("FÊMEA")
+}
+
+enum exameFisico_estadoCorporal {
+  Caqu_tico @map("Caquético")
+  Magro
+  Ideal
+  Sobrepeso
+  Obeso
+}
+
+enum manejo_contatoComOutrosAnimais {
+  Nenhum
+  Pouco
+  Frequentemente
+}
+
+enum pets_porte {
+  PEQUENO
+  MEDIO
+  GRANDE
+}
+
+enum pets_situacao {
+  VIVO
+  MORTO
+}
+
+enum demandas_reincidencia {
+  Sim
+  N_o @map("Não")
+}
+
+enum demandas_meioSolicitacao {
+  WhatsApp
+  Presencial
+}
+
+enum candidatos_estCivil {
+  Solteiro
+  Casado
+  Vi_vo                  @map("Viúvo")
+  Divorciado
+  Separado_juridicamente @map("Separado juridicamente")
+}
+
+enum cliente_situacao {
+  Liberado
+  Bloqueado
+}
+
+enum cliente_prioridade {
+  Alta
+  Normal
+  Baixa
+}
+
+enum candidatos_status {
+  Trabalhando
+  Disponivel
+}
+
+enum candidatos_departamento {
+  Privado
+  Publico
+}
