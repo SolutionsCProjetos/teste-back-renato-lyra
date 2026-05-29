@@ -8,6 +8,23 @@ const prisma = new PrismaClient({ log: ['query', 'info', 'warn', 'error'] });
 const saltRounds = 10;
 const jwt = require('jsonwebtoken')
 
+// Helper retry wrapper for transient DB errors (e.g., lock wait timeout 1205)
+async function withRetry(fn, retries = 3, baseDelay = 200) {
+  let attempt = 0
+  while (true) {
+    try {
+      return await fn()
+    } catch (err) {
+      attempt++
+      const isLockWait = err && err.message && err.message.includes('Lock wait timeout')
+      if (attempt > retries || !isLockWait) throw err
+      const delay = baseDelay * Math.pow(2, attempt - 1)
+      console.warn(`Transient DB error detected (attempt ${attempt}/${retries}). Retrying after ${delay}ms...`)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+}
+
 // Helper: uma Promise que rejeita após ms
 function timeoutPromise(ms, message = 'Operation timed out') {
   return new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
@@ -19,7 +36,7 @@ router.get('/db-test', async (req, res) => {
   const timeoutMs = parseInt(req.query.ms) || 5000;
   try {
     const start = Date.now();
-    // Promise.race entre a query rápida e o timeout
+    // Promise.race entre a query rápida e o timeout 
     const result = await Promise.race([
       prisma.$queryRaw`SELECT 1 as ok`,
       timeoutPromise(timeoutMs, `DB query exceeded ${timeoutMs}ms`)
@@ -202,14 +219,27 @@ router.post('/register', async (req, res) => {
     console.log(`bcrypt.hash took ${Date.now() - startHash}ms`);
 
   // 🔍 1. Busca em solicitantes_unicos (com CPF normalizado)
-  // Medir tempo da consulta para identificar lentidão
-  const startFindUnicos = Date.now();
-  const candidatosUnicos = await prisma.solicitantes_unicos.findMany();
-  console.log(`prisma.solicitantes_unicos.findMany() took ${Date.now() - startFindUnicos}ms`);
-    const existenteUnico = candidatosUnicos.find(entry => {
-      const cpfBanco = entry.cpf?.replace(/\D/g, '');
-      return cpfBanco === cpfLimpo;
-    });
+  // Evita varredura completa: primeiro tenta buscar por cpf exato, depois fallback para comparar sem pontuação via SQL
+  let existenteUnico = null
+  try {
+    const startFindUnicos = Date.now();
+    existenteUnico = await prisma.solicitantes_unicos.findFirst({ where: { cpf: cpfLimpo } });
+    console.log(`prisma.solicitantes_unicos.findFirst(exact) took ${Date.now() - startFindUnicos}ms`);
+
+    if (!existenteUnico) {
+      // Fallback: comparar removendo pontos/traços diretamente no SQL (mais robusto se DB armazenou com formatação)
+      const startRaw = Date.now();
+      const rows = await prisma.$queryRawUnsafe(
+        "SELECT * FROM solicitantes_unicos WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
+        cpfLimpo
+      );
+      console.log(`prisma.$queryRawUnsafe(find by normalized cpf) took ${Date.now() - startRaw}ms`);
+      if (rows && rows.length) existenteUnico = rows[0];
+    }
+  } catch (err) {
+    console.error('Erro buscando solicitantes_unicos:', err);
+    // não falha aqui, continua para lógica de criação
+  }
 
      console.log(req.body, 'body recebido dentro do try')
 
@@ -221,13 +251,25 @@ router.post('/register', async (req, res) => {
     }
 
   // 🔍 2. Busca em solicitantes com CPF normalizado
-  const startFindSolic = Date.now();
-  const candidatosSolicitantes = await prisma.solicitantes.findMany();
-  console.log(`prisma.solicitantes.findMany() took ${Date.now() - startFindSolic}ms`);
-    const solicitanteExistente = candidatosSolicitantes.find(entry => {
-      const cpfBanco = entry.cpf?.replace(/\D/g, '');
-      return cpfBanco === cpfLimpo;
-    });
+  // 🔍 2. Busca em solicitantes com CPF normalizado (evita scan completo)
+  let solicitanteExistente = null
+  try {
+    const startFindSolic = Date.now();
+    solicitanteExistente = await prisma.solicitantes.findFirst({ where: { cpf: cpfLimpo } });
+    console.log(`prisma.solicitantes.findFirst(exact) took ${Date.now() - startFindSolic}ms`);
+
+    if (!solicitanteExistente) {
+      const startRaw2 = Date.now();
+      const rows2 = await prisma.$queryRawUnsafe(
+        "SELECT * FROM solicitantes WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
+        cpfLimpo
+      );
+      console.log(`prisma.$queryRawUnsafe(solicitantes normalized cpf) took ${Date.now() - startRaw2}ms`);
+      if (rows2 && rows2.length) solicitanteExistente = rows2[0];
+    }
+  } catch (err) {
+    console.error('Erro buscando solicitantes:', err);
+  }
 
     const { meio, zonaEleitoral, observacoes, liderId, liderNome, ...dadosSemMeio } = dados;
     let idFinal;
@@ -235,33 +277,38 @@ router.post('/register', async (req, res) => {
      console.log(dadosSemMeio, 'dados sem meio antes de chamar unicos')
 
     if (solicitanteExistente) {
-      idFinal = solicitanteExistente.id;
+  idFinal = solicitanteExistente.id;
 
       // ✅ Cria ou atualiza em solicitantes_unicos com mesmo ID
       if (!existenteUnico) {
         const t0 = Date.now();
-        await prisma.solicitantes_unicos.create({
-          data: {
-            id: idFinal,
-            cpf: cpfLimpo,
-            senha: senhaHash,
-            meio: meio || null,
-            zonaEleitoral: zonaEleitoral || null,
-            ...dadosSemMeio
-          }
-        });
+        // retry wrapper to handle occasional lock wait timeouts
+        await withRetry(async () => {
+          return await prisma.solicitantes_unicos.create({
+            data: {
+              id: idFinal,
+              cpf: cpfLimpo,
+              senha: senhaHash,
+              meio: meio || null,
+              zonaEleitoral: zonaEleitoral || null,
+              ...dadosSemMeio
+            }
+          })
+        })
         console.log(`prisma.solicitantes_unicos.create() took ${Date.now() - t0}ms`);
       } else {
         const t0 = Date.now();
-        await prisma.solicitantes_unicos.update({
-          where: { id: existenteUnico.id },
-          data: {
-            senha: senhaHash,
-            meio: meio || null,
-            zonaEleitoral: zonaEleitoral || null,
-            ...dadosSemMeio
-          }
-        });
+        await withRetry(async () => {
+          return await prisma.solicitantes_unicos.update({
+            where: { id: existenteUnico.id },
+            data: {
+              senha: senhaHash,
+              meio: meio || null,
+              zonaEleitoral: zonaEleitoral || null,
+              ...dadosSemMeio
+            }
+          })
+        })
         console.log(`prisma.solicitantes_unicos.update() took ${Date.now() - t0}ms`);
       }
 
@@ -272,31 +319,38 @@ router.post('/register', async (req, res) => {
     }
 
     // 🆕 3. Se não existe em nenhuma, cria nas duas com mesmo ID
-    const startCreateSolic = Date.now();
-    const novoSolicitante = await prisma.solicitantes.create({
-      data: {
-        cpf: cpfLimpo,
-        ...dadosSemMeio // "meio" não vai aqui
-      }
-    });
-    console.log(`prisma.solicitantes.create() took ${Date.now() - startCreateSolic}ms`);
+    // Criar ambos em uma única transação para evitar condições de corrida/locks
+    const startCreateTxn = Date.now();
+    const txnResult = await withRetry(async () => {
+      return await prisma.$transaction(async (tx) => {
+        const novoSolicitante = await tx.solicitantes.create({
+          data: {
+            cpf: cpfLimpo,
+            ...dadosSemMeio // "meio" não vai aqui
+          }
+        })
 
-    idFinal = novoSolicitante.id;
+        const novoUnico = await tx.solicitantes_unicos.create({
+          data: {
+            id: novoSolicitante.id,
+            cpf: cpfLimpo,
+            senha: senhaHash,
+            meio: meio || null,
+            observacoes: observacoes || null,
+            liderId: liderId || null,
+            zonaEleitoral: zonaEleitoral || null,
+            ...dadosSemMeio
+          }
+        })
 
-    const startCreateUnico = Date.now();
-    const novoUnico = await prisma.solicitantes_unicos.create({
-      data: {
-        id: idFinal,
-        cpf: cpfLimpo,
-        senha: senhaHash,
-        meio: meio || null,
-        observacoes: observacoes || null, 
-        liderId: liderId || null,
-        zonaEleitoral: zonaEleitoral || null,
-        ...dadosSemMeio
-      }
-    });
-    console.log(`prisma.solicitantes_unicos.create() took ${Date.now() - startCreateUnico}ms`);
+        return { novoSolicitante, novoUnico }
+      })
+    })
+    console.log(`prisma transaction (create solicitante + unico) took ${Date.now() - startCreateTxn}ms`);
+
+    const novoSolicitante = txnResult.novoSolicitante
+    const novoUnico = txnResult.novoUnico
+    idFinal = novoSolicitante.id
 
     return res.json({
       message: 'Novo solicitante criado com sucesso nas duas tabelas',
