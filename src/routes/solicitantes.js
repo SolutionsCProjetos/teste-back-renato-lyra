@@ -269,21 +269,33 @@ router.post('/register', async (req, res) => {
       console.log('[INFO] Solicitante já existe, usando ID:', solicitanteExistente.id);
       idFinal = solicitanteExistente.id;
 
-      // ✅ Cria ou atualiza em solicitantes_unicos com mesmo ID
+      // ✅ Cria ou atualiza em solicitantes_unicos com mesmo ID (usa UPSERT para evitar locks)
       if (!existenteUnico) {
-        console.log('[START] Criando em solicitantes_unicos...');
-        console.log('[START] Criando em solicitantes_unicos...');
-        await prisma.solicitantes_unicos.create({
-          data: {
-            id: idFinal,
-            cpf: cpfLimpo,
-            senha: senhaHash,
-            meio: meio || null,
-            zonaEleitoral: zonaEleitoral || null,
-            ...dadosSemMeio
-          }
-        });
-        console.log('[DONE] solicitantes_unicos criado');
+        console.log('[START] Criando em solicitantes_unicos com UPSERT...');
+        // Usa SQL direto com INSERT ... ON DUPLICATE KEY UPDATE para evitar locks
+        await prisma.$executeRaw`
+          INSERT INTO solicitantes_unicos (
+            id, cpf, senha, meio, zonaEleitoral, nomeCompleto, titulo, 
+            telefoneContato, email, cep, endereco, num, bairro, zona, 
+            pontoReferencia, secaoEleitoral, indicadoPor
+          ) VALUES (
+            ${idFinal}, ${cpfLimpo}, ${senhaHash}, ${meio || null}, 
+            ${zonaEleitoral || null}, ${dadosSemMeio.nomeCompleto}, 
+            ${dadosSemMeio.titulo}, ${dadosSemMeio.telefoneContato}, 
+            ${dadosSemMeio.email}, ${dadosSemMeio.cep}, ${dadosSemMeio.endereco}, 
+            ${dadosSemMeio.num}, ${dadosSemMeio.bairro}, ${dadosSemMeio.zona}, 
+            ${dadosSemMeio.pontoReferencia || null}, ${dadosSemMeio.secaoEleitoral || null}, 
+            ${dadosSemMeio.indicadoPor || null}
+          )
+          ON DUPLICATE KEY UPDATE
+            senha = VALUES(senha),
+            meio = VALUES(meio),
+            zonaEleitoral = VALUES(zonaEleitoral),
+            nomeCompleto = VALUES(nomeCompleto),
+            telefoneContato = VALUES(telefoneContato),
+            email = VALUES(email)
+        `;
+        console.log('[DONE] solicitantes_unicos criado/atualizado');
       } else {
         console.log('[START] Atualizando solicitantes_unicos...');
         await prisma.solicitantes_unicos.update({
@@ -317,26 +329,35 @@ router.post('/register', async (req, res) => {
 
     idFinal = novoSolicitante.id;
 
-    console.log('[START] Criando registro em solicitantes_unicos com ID:', idFinal);
-    const novoUnico = await prisma.solicitantes_unicos.create({
-      data: {
-        id: idFinal,
-        cpf: cpfLimpo,
-        senha: senhaHash,
-        meio: meio || null,
-        observacoes: observacoes || null, 
-        liderId: liderId || null,
-        zonaEleitoral: zonaEleitoral || null,
-        ...dadosSemMeio
-      }
-    });
+    console.log('[START] Criando registro em solicitantes_unicos com UPSERT e ID:', idFinal);
+    // Usa INSERT ... ON DUPLICATE KEY UPDATE para evitar lock wait
+    await prisma.$executeRaw`
+      INSERT INTO solicitantes_unicos (
+        id, cpf, senha, meio, zonaEleitoral, observacoes, liderId,
+        nomeCompleto, titulo, telefoneContato, email, cep, endereco, 
+        num, bairro, zona, pontoReferencia, secaoEleitoral, indicadoPor
+      ) VALUES (
+        ${idFinal}, ${cpfLimpo}, ${senhaHash}, ${meio || null}, 
+        ${zonaEleitoral || null}, ${observacoes || null}, ${liderId || null},
+        ${dadosSemMeio.nomeCompleto}, ${dadosSemMeio.titulo}, 
+        ${dadosSemMeio.telefoneContato}, ${dadosSemMeio.email}, 
+        ${dadosSemMeio.cep}, ${dadosSemMeio.endereco}, ${dadosSemMeio.num}, 
+        ${dadosSemMeio.bairro}, ${dadosSemMeio.zona}, 
+        ${dadosSemMeio.pontoReferencia || null}, 
+        ${dadosSemMeio.secaoEleitoral || null}, 
+        ${dadosSemMeio.indicadoPor || null}
+      )
+      ON DUPLICATE KEY UPDATE
+        senha = VALUES(senha),
+        meio = VALUES(meio),
+        zonaEleitoral = VALUES(zonaEleitoral)
+    `;
     console.log('[DONE] solicitantes_unicos criado');
 
     console.log('[SUCCESS] Registro completo para novo solicitante');
     return res.json({
       message: 'Novo solicitante criado com sucesso nas duas tabelas',
-      solicitante: novoSolicitante,
-      solicitante_unico: novoUnico
+      id: idFinal
     });
 
   } catch (error) {
