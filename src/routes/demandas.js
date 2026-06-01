@@ -126,6 +126,7 @@ router.get('/quick', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
+    console.log('[START] Criando nova demanda...');
     const {
       protocolo,
       setor,
@@ -145,17 +146,23 @@ router.post('/', async (req, res) => {
       indicadoPor
     } = req.body;
 
-    // 1. Verificar se o solicitante existe
-    const solicitanteExistente = await prisma.solicitantes_unicos.findUnique({
-      where: { id: parseInt(solicitantId) }
-    });
+    // 1. Verificar se o solicitante existe (com timeout)
+    console.log('[START] Verificando solicitante...');
+    const solicitanteExistente = await Promise.race([
+      prisma.solicitantes_unicos.findUnique({
+        where: { id: parseInt(solicitantId) }
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao verificar solicitante')), 5000))
+    ]);
 
     if (!solicitanteExistente) {
+      console.log('[ERROR] Solicitante não encontrado:', solicitantId);
       return res.status(400).json({ 
         error: 'Solicitante não encontrado',
         details: `Nenhum solicitante encontrado com o ID: ${solicitantId}`
       });
     }
+    console.log('[DONE] Solicitante verificado');
 
     // 2. Mapear valores para os enums corretos
     const reincidenciaEnum = reincidencia === 'N_o' ? 'N_o' : 'Sim';
@@ -164,46 +171,57 @@ router.post('/', async (req, res) => {
                       status === 'Conclu_da' ? 'Conclu_da' : 
                       status === 'Cancelada' ? 'Cancelada' : 'Pendente';
 
-      function parseData(data) {
-  if (!data || isNaN(Date.parse(data))) return null;
-  return new Date(data);
-}
+    function parseData(data) {
+      if (!data || isNaN(Date.parse(data))) return null;
+      return new Date(data);
+    }
 
-
-    // 3. Criar a demanda com tratamento correto de datas
-    const novaDemanda = await prisma.demandas.create({
-      data: {
-        protocolo,
-        setor,
-        prioridade,
-        status: statusEnum,
-        // dataSolicitacao: dataSolicitacao ? new Date(dataSolicitacao) : new Date(), // Corrigido aqui
-        // dataTermino: dataTermino ? new Date(dataTermino) : null,
-        dataSolicitacao: parseData(dataSolicitacao) || new Date(),
-        dataTermino: parseData(dataTermino),
-        solicitant,
-        reincidencia: reincidenciaEnum,
-        meioSolicitacao: meioSolicitacaoEnum,
-        anexarDocumentos,
-        envioCobranca1,
-        envioCobranca2,
-        envioParaResponsavel,
-        observacoes,
-        solicitanteId: parseInt(solicitantId),
-        indicadoPor
-      }
+    // 3. Criar a demanda usando INSERT direto (evita locks)
+    console.log('[START] Inserindo demanda no banco...');
+    const dataSolicitacaoParsed = parseData(dataSolicitacao) || new Date();
+    const dataTerminoParsed = parseData(dataTermino);
+    
+    await Promise.race([
+      prisma.$executeRaw`
+        INSERT INTO demandas (
+          protocolo, setor, prioridade, status, dataSolicitacao, dataTermino,
+          solicitant, reincidencia, meioSolicitacao, anexarDocumentos,
+          envioCobranca1, envioCobranca2, envioParaResponsavel, observacoes,
+          solicitanteId, indicadoPor
+        ) VALUES (
+          ${protocolo}, ${setor}, ${prioridade}, ${statusEnum}, 
+          ${dataSolicitacaoParsed}, ${dataTerminoParsed}, ${solicitant},
+          ${reincidenciaEnum}, ${meioSolicitacaoEnum}, ${anexarDocumentos},
+          ${envioCobranca1}, ${envioCobranca2}, ${envioParaResponsavel},
+          ${observacoes}, ${parseInt(solicitantId)}, ${indicadoPor}
+        )
+      `,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao criar demanda')), 10000))
+    ]);
+    
+    // Buscar a demanda criada
+    const novaDemanda = await prisma.demandas.findFirst({
+      where: { protocolo },
+      orderBy: { id: 'desc' }
     });
-
+    
+    console.log('[DONE] Demanda criada com sucesso, ID:', novaDemanda?.id);
     res.json(novaDemanda);
   } catch (error) {
-    console.error('Erro detalhado:', {
+    console.error('[ERROR] Erro ao criar demanda:', {
       message: error.message,
       code: error.code,
       meta: error.meta
     });
     
     let errorMessage = 'Erro ao criar demanda';
-    if (error.code === 'P2003') {
+    if (error.message.includes('Timeout')) {
+      errorMessage = 'Timeout ao criar demanda. Banco travado.';
+      return res.status(504).json({ 
+        error: errorMessage,
+        details: error.message
+      });
+    } else if (error.code === 'P2003') {
       errorMessage = 'Erro de relacionamento: O solicitante informado não existe';
     } else if (error.code === 'P2002') {
       errorMessage = 'Violação de restrição única: Protocolo já existe';
@@ -297,7 +315,29 @@ router.get('/', async (req, res) => {
     // Total para paginação
     const total = await prisma.demandas.count({ where });
 
-    const lista = await prisma.demandas.findMany({
+    const returnAll = String(req.query.all || '').toLowerCase() === 'true'
+
+    let lista
+    if (returnAll) {
+      // Retorna todas as demandas (sem skip/take) - use com cuidado em bases grandes
+      lista = await prisma.demandas.findMany({
+        where,
+        include: {
+          solicitantes: {
+            select: { id: true, nomeCompleto: true, cpf: true, telefoneContato: true, email: true }
+          }
+        },
+        orderBy: { dataSolicitacao: 'desc' }
+      })
+
+      res.json({
+        meta: { total, page: 1, limit: lista.length, pages: 1 },
+        data: lista
+      })
+      return
+    }
+
+    const listaPaginated = await prisma.demandas.findMany({
       where,
       include: {
         // incluir apenas campos necessários do solicitante para performance
@@ -317,7 +357,7 @@ router.get('/', async (req, res) => {
         limit,
         pages: Math.ceil(total / limit)
       },
-      data: lista
+      data: listaPaginated
     });
   } catch (error) {
     console.error('Erro ao buscar demandas:', {
@@ -561,51 +601,68 @@ router.delete('/:id', async (req, res) => {
   try {
     const demandaId = parseInt(req.params.id);
 
-    // 1. Buscar a demanda original
-    const demanda = await prisma.demandas.findUnique({
-      where: { id: demandaId }
-    });
+    console.log('[START] Deletando demanda ID:', demandaId);
+    
+    // 1. Buscar a demanda original (com timeout)
+    const demanda = await Promise.race([
+      prisma.demandas.findUnique({
+        where: { id: demandaId }
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao buscar demanda')), 5000))
+    ]);
 
     if (!demanda) {
+      console.log('[ERROR] Demanda não encontrada:', demandaId);
       return res.status(404).json({ error: 'Demanda não encontrada' });
     }
 
     // Pega o usuário logado (do middleware auth)
     const userId = req.user?.id || null;
 
-    // 2. Inserir na tabela de log
-    await prisma.demandas_deletadas.create({
-      data: {
-        demandaId: demanda.id,
-        protocolo: demanda.protocolo,
-        setor: demanda.setor,
-        prioridade: demanda.prioridade,
-        status: demanda.status,
-        dataSolicitacao: demanda.dataSolicitacao,
-        dataTermino: demanda.dataTermino,
-        solicitant: demanda.solicitant,
-        reincidencia: demanda.reincidencia,
-        meioSolicitacao: demanda.meioSolicitacao,
-        anexarDocumentos: demanda.anexarDocumentos,
-        envioCobranca1: demanda.envioCobranca1,
-        envioCobranca2: demanda.envioCobranca2,
-        envioParaResponsavel: demanda.envioParaResponsavel,
-        observacoes: demanda.observacoes,
-        solicitanteId: demanda.solicitanteId,
-        indicadoPor: demanda.indicadoPor,
-        deletadoPor: userId,
-      }
-    });
+    // 2. Inserir na tabela de log usando INSERT direto (evita locks)
+    console.log('[START] Inserindo em demandas_deletadas...');
+    await Promise.race([
+      prisma.$executeRaw`
+        INSERT INTO demandas_deletadas (
+          demandaId, protocolo, setor, prioridade, status, dataSolicitacao,
+          dataTermino, solicitant, reincidencia, meioSolicitacao, anexarDocumentos,
+          envioCobranca1, envioCobranca2, envioParaResponsavel, observacoes,
+          solicitanteId, indicadoPor, deletadoPor
+        ) VALUES (
+          ${demanda.id}, ${demanda.protocolo}, ${demanda.setor}, ${demanda.prioridade},
+          ${demanda.status}, ${demanda.dataSolicitacao}, ${demanda.dataTermino},
+          ${demanda.solicitant}, ${demanda.reincidencia}, ${demanda.meioSolicitacao},
+          ${demanda.anexarDocumentos}, ${demanda.envioCobranca1}, ${demanda.envioCobranca2},
+          ${demanda.envioParaResponsavel}, ${demanda.observacoes}, ${demanda.solicitanteId},
+          ${demanda.indicadoPor}, ${userId}
+        )
+      `,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao inserir log')), 5000))
+    ]);
+    console.log('[DONE] Log criado');
 
     // 3. Deletar da tabela original
-    await prisma.demandas.delete({
-      where: { id: demandaId }
-    });
+    console.log('[START] Deletando demanda...');
+    await Promise.race([
+      prisma.demandas.delete({
+        where: { id: demandaId }
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao deletar demanda')), 5000))
+    ]);
+    console.log('[DONE] Demanda deletada');
 
     res.json({ success: true, message: 'Demanda deletada e registrada no log' });
   } catch (error) {
-    console.error('Erro ao deletar demanda:', error);
-    res.status(500).json({ error: 'Erro ao deletar demanda' });
+    console.error('[ERROR] Erro ao deletar demanda:', error.message);
+    
+    if (error.message.includes('Timeout')) {
+      return res.status(504).json({ 
+        error: 'Timeout ao deletar demanda. Banco travado.',
+        details: error.message
+      });
+    }
+    
+    res.status(500).json({ error: 'Erro ao deletar demanda', details: error.message });
   }
 });
 
