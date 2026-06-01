@@ -3,8 +3,8 @@ const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
 const router = express.Router();
 
-// Ativa logs de query para medir duração e detectar queries lentas
-const prisma = new PrismaClient({ log: ['query', 'info', 'warn', 'error'] });
+// Reuse PrismaClient singleton
+const prisma = require('../prismaClient')
 const saltRounds = 10;
 const jwt = require('jsonwebtoken')
 
