@@ -146,25 +146,7 @@ router.post('/', async (req, res) => {
       indicadoPor
     } = req.body;
 
-    // 1. Verificar se o solicitante existe (com timeout)
-    console.log('[START] Verificando solicitante...');
-    const solicitanteExistente = await Promise.race([
-      prisma.solicitantes_unicos.findUnique({
-        where: { id: parseInt(solicitantId) }
-      }),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout ao verificar solicitante')), 5000))
-    ]);
-
-    if (!solicitanteExistente) {
-      console.log('[ERROR] Solicitante não encontrado:', solicitantId);
-      return res.status(400).json({ 
-        error: 'Solicitante não encontrado',
-        details: `Nenhum solicitante encontrado com o ID: ${solicitantId}`
-      });
-    }
-    console.log('[DONE] Solicitante verificado');
-
-    // 2. Mapear valores para os enums corretos
+    // 1. Mapear valores para os enums corretos
     const reincidenciaEnum = reincidencia === 'N_o' ? 'N_o' : 'Sim';
     const meioSolicitacaoEnum = meioSolicitacao === 'WhatsApp' ? 'WhatsApp' : 'Presencial';
     const statusEnum = status === 'Aguardando_Retorno' ? 'Aguardando_Retorno' :
@@ -176,8 +158,8 @@ router.post('/', async (req, res) => {
       return new Date(data);
     }
 
-    // 3. Criar a demanda usando INSERT direto (evita locks)
-    console.log('[START] Inserindo demanda no banco...');
+    // 2. Criar a demanda usando INSERT direto (MySQL valida FK automaticamente)
+    console.log('[START] Inserindo demanda no banco com solicitanteId:', solicitantId);
     const dataSolicitacaoParsed = parseData(dataSolicitacao) || new Date();
     const dataTerminoParsed = parseData(dataTermino);
     
