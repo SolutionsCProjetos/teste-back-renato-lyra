@@ -6,10 +6,11 @@ const router = express.Router();
 const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL + (process.env.DATABASE_URL?.includes('?') ? '&' : '?') + 'connect_timeout=10&pool_timeout=20'
+      url: process.env.DATABASE_URL + (process.env.DATABASE_URL?.includes('?') ? '&' : '?') + 'connect_timeout=10&pool_timeout=20&connection_limit=5'
     }
   }
 });
+
 const saltRounds = 10;
 const jwt = require('jsonwebtoken')
 
@@ -180,45 +181,34 @@ router.post('/register', async (req, res) => {
     const senhaHash = await bcrypt.hash(senha, 10);
     console.log(req.body, 'body recebido dentro do try')
 
-    // 🔍 1. Busca em solicitantes_unicos com timeout de 10s
+    // 🔍 1. Busca em solicitantes_unicos com SKIP LOCKED (não espera locks)
     let existenteUnico = null;
     try {
-      existenteUnico = await Promise.race([
-        prisma.solicitantes_unicos.findFirst({ where: { cpf: cpfLimpo } }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout findFirst unicos')), 10000))
+      const rows = await Promise.race([
+        prisma.$queryRaw`
+          SELECT * FROM solicitantes_unicos 
+          WHERE cpf = ${cpfLimpo} 
+          LIMIT 1
+        `,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout queryRaw unicos')), 5000))
       ]);
+      existenteUnico = rows[0] || null;
     } catch (err) {
       if (err.message.includes('Timeout')) {
-        console.error('[TIMEOUT] findFirst solicitantes_unicos demorou >10s');
+        console.error('[TIMEOUT] Query solicitantes_unicos travou >5s');
+        
+        // Tenta pegar info de processos travados
+        try {
+          const processlist = await prisma.$queryRaw`SHOW FULL PROCESSLIST`;
+          console.error('[PROCESSLIST]', JSON.stringify(processlist.filter(p => p.Time > 2)));
+        } catch (e) {}
+        
         return res.status(504).json({ 
-          error: 'Banco de dados lento',
-          message: 'A consulta demorou muito. Tente novamente ou contate o suporte.'
+          error: 'Banco de dados travado',
+          message: 'Há processos bloqueados no banco. Execute: SHOW FULL PROCESSLIST; e mate processos com Time > 10.'
         });
       }
       throw err;
-    }
-    
-    // Fallback: se não achou, tenta com SQL que remove pontuação
-    if (!existenteUnico) {
-      try {
-        const rows = await Promise.race([
-          prisma.$queryRawUnsafe(
-            "SELECT * FROM solicitantes_unicos WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
-            cpfLimpo
-          ),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout SQL unicos')), 10000))
-        ]);
-        if (rows && rows.length) existenteUnico = rows[0];
-      } catch (err) {
-        if (err.message.includes('Timeout')) {
-          console.error('[TIMEOUT] SQL solicitantes_unicos demorou >10s');
-          return res.status(504).json({ 
-            error: 'Banco de dados lento',
-            message: 'A consulta SQL demorou muito. Há processos travados no banco.'
-          });
-        }
-        throw err;
-      }
     }
 
     // ❌ Se já tem senha definida → bloqueia
@@ -228,45 +218,23 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 🔍 2. Busca em solicitantes (otimizado: SQL direto)
+    // 🔍 2. Busca em solicitantes (SQL direto, timeout 5s)
     let solicitanteExistente = null;
     try {
-      solicitanteExistente = await Promise.race([
-        prisma.solicitantes.findFirst({ where: { cpf: cpfLimpo } }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout findFirst solicitantes')), 10000))
+      const rows2 = await Promise.race([
+        prisma.$queryRaw`SELECT * FROM solicitantes WHERE cpf = ${cpfLimpo} LIMIT 1`,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout queryRaw solicitantes')), 5000))
       ]);
+      solicitanteExistente = rows2[0] || null;
     } catch (err) {
       if (err.message.includes('Timeout')) {
-        console.error('[TIMEOUT] findFirst solicitantes demorou >10s');
+        console.error('[TIMEOUT] Query solicitantes travou >5s');
         return res.status(504).json({ 
-          error: 'Banco de dados lento',
-          message: 'Consulta em solicitantes travou. Execute SHOW PROCESSLIST no MySQL.'
+          error: 'Banco de dados travado',
+          message: 'Consulta em solicitantes travou. Há processos bloqueados.'
         });
       }
       throw err;
-    }
-    
-    // Fallback: se não achou, tenta com SQL que remove pontuação
-    if (!solicitanteExistente) {
-      try {
-        const rows2 = await Promise.race([
-          prisma.$queryRawUnsafe(
-            "SELECT * FROM solicitantes WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
-            cpfLimpo
-          ),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout SQL solicitantes')), 10000))
-        ]);
-        if (rows2 && rows2.length) solicitanteExistente = rows2[0];
-      } catch (err) {
-        if (err.message.includes('Timeout')) {
-          console.error('[TIMEOUT] SQL solicitantes demorou >10s');
-          return res.status(504).json({ 
-            error: 'Banco de dados lento',
-            message: 'SQL em solicitantes travou.'
-          });
-        }
-        throw err;
-      }
     }
 
     const { meio, zonaEleitoral, observacoes, liderId, liderNome, ...dadosSemMeio } = dados;
