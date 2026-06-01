@@ -695,17 +695,21 @@ router.post('/login', async (req, res) => {
     if (!user) {
       tipo = 'solicitante';
 
-      const solicitantesList = await prisma.solicitantes_unicos.findMany();
-
-      console.log(`[LOGIN] Solicitantes encontrados: ${solicitantesList.length}`);
-
-      user = solicitantesList.find(s =>
-        (
-          s.email?.trim().toLowerCase() === emailBusca ||
-          s.cpf?.replace(/\D/g, '') === cpfLimpo
-        ) &&
-        !!s.senha
-      );
+      // Busca otimizada: primeiro por email, depois por CPF via SQL
+      if (isEmail) {
+        user = await prisma.solicitantes_unicos.findFirst({ 
+          where: { email: emailBusca },
+          select: { id: true, nomeCompleto: true, cpf: true, email: true, senha: true, adm: true, createdAt: true, updatedAt: true }
+        });
+      }
+      
+      if (!user && cpfLimpo) {
+        const rows = await prisma.$queryRawUnsafe(
+          "SELECT * FROM solicitantes_unicos WHERE REPLACE(REPLACE(REPLACE(cpf,'.',''),'-',''),' ','') = ? LIMIT 1",
+          cpfLimpo
+        );
+        if (rows && rows.length && rows[0].senha) user = rows[0];
+      }
 
       if (user) {
         console.log('[LOGIN] Usuário autenticado como SOLICITANTE:', user.email || user.cpf);
@@ -771,19 +775,26 @@ router.post('/login', async (req, res) => {
 
 
 
-// Listar todos os solicitantes únicos
+// Listar solicitantes únicos (com paginação)
 router.get('/', async (req, res) => {
-  const { cpf } = req.query;
+  const { cpf, page = 1, limit = 100 } = req.query;
 
   try {
     let lista;
+    const take = Math.min(parseInt(limit) || 100, 500);
+    const skip = (Math.max(parseInt(page) || 1, 1) - 1) * take;
 
     if (cpf) {
       lista = await prisma.solicitantes_unicos.findMany({
-        where: { cpf: String(cpf) }
+        where: { cpf: String(cpf) },
+        take: 10
       });
     } else {
-      lista = await prisma.solicitantes_unicos.findMany();
+      lista = await prisma.solicitantes_unicos.findMany({
+        take,
+        skip,
+        orderBy: { id: 'desc' }
+      });
     }
 
     res.json(lista);
@@ -793,11 +804,21 @@ router.get('/', async (req, res) => {
 });
 
 
+// Cache para query pesada de duplicados
+let _cacheDuplicados = null;
+let _cacheDuplicadosTime = 0;
+const CACHE_TTL = 60000; // 60 segundos
+
 // Buscar solicitantes com CPF ausente ou duplicado
 router.get('/duplicados', async (req, res) => {
   try {
+    const now = Date.now();
+    if (_cacheDuplicados && (now - _cacheDuplicadosTime) < CACHE_TTL) {
+      return res.json(_cacheDuplicados);
+    }
+
     const solicitantesComProblema = await prisma.$queryRawUnsafe(`
-      SELECT * FROM solicitantes
+      SELECT id, nomeCompleto, cpf, email FROM solicitantes
       WHERE cpf IS NULL OR cpf = ''
       OR cpf IN (
         SELECT cpf FROM solicitantes
@@ -806,12 +827,16 @@ router.get('/duplicados', async (req, res) => {
         HAVING COUNT(*) > 1
       )
       ORDER BY id ASC
+      LIMIT 500
     `);
 
-    return res.json({
+    _cacheDuplicados = {
       total: solicitantesComProblema.length,
       duplicados: solicitantesComProblema
-    });
+    };
+    _cacheDuplicadosTime = now;
+
+    return res.json(_cacheDuplicados);
 
   } catch (error) {
     console.error('[🔥 DUPLICADOS] Erro ao buscar via raw SQL:', error);
@@ -993,16 +1018,13 @@ router.post('/verificar-identidade', async (req, res) => {
 
     console.log(emailBusca, cpfLimpo, 'formatados email e cpf após a busca de usuário');
 
-    // 2. Verificar solicitantes_unicos por email + CPF (removendo pontuação manualmente)
-    const solicitantesList = await prisma.solicitantes_unicos.findMany({
-      where: {
-        email: emailBusca
-      }
-    });
-
-    const solicitante = solicitantesList.find(s =>
-      s.cpf?.replace(/\D/g, '') === cpfLimpo
+    // 2. Verificar solicitantes_unicos por email + CPF via SQL direto
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT id FROM solicitantes_unicos WHERE email = ? AND REPLACE(REPLACE(REPLACE(cpf,'.',''),'-',''),' ','') = ? LIMIT 1",
+      emailBusca, cpfLimpo
     );
+
+    const solicitante = rows && rows.length ? rows[0] : null;
 
     console.log(solicitante, 'solicitante após a busca');
 
@@ -1034,14 +1056,13 @@ router.post('/redefinir-senha', async (req, res) => {
   try {
     const senhaHash = await bcrypt.hash(novaSenha, 10);
 
-    // 1. Tenta redefinir senha de SOLICITANTE com email + CPF
-    const solicitantes = await prisma.solicitantes_unicos.findMany({
-      where: { email: emailBusca }
-    });
-
-    const solicitante = solicitantes.find(s =>
-      s.cpf?.replace(/\D/g, '') === cpfLimpo
+    // 1. Tenta redefinir senha de SOLICITANTE com email + CPF via SQL direto
+    const rows = await prisma.$queryRawUnsafe(
+      "SELECT id FROM solicitantes_unicos WHERE email = ? AND REPLACE(REPLACE(REPLACE(cpf,'.',''),'-',''),' ','') = ? LIMIT 1",
+      emailBusca, cpfLimpo
     );
+
+    const solicitante = rows && rows.length ? rows[0] : null;
 
     if (solicitante) {
       await prisma.solicitantes_unicos.update({
@@ -1097,12 +1118,12 @@ router.post('/registrarID', async (req, res) => {
     const senhaHash = await bcrypt.hash(senha, 10);
     const { meio, zonaEleitoral, ...dadosSemMeio } = dados;
 
-    // 🔍 1. Busca TODOS os registros em `solicitantes_unicos` e compara os CPFs (com e sem formatação)
-    const todosUnicos = await prisma.solicitantes_unicos.findMany();
-    const cpfJaExiste = todosUnicos.some((registro) => {
-      const cpfBancoLimpo = registro.cpf?.replace(/\D/g, '') || '';
-      return cpfBancoLimpo === cpfLimpo; // Compara os CPFs "limpos"
-    });
+    // 🔍 1. Verifica se CPF já existe via query direta (evita full scan)
+    const rowsCpf = await prisma.$queryRawUnsafe(
+      "SELECT id FROM solicitantes_unicos WHERE REPLACE(REPLACE(REPLACE(cpf,'.',''),'-',''),' ','') = ? LIMIT 1",
+      cpfLimpo
+    );
+    const cpfJaExiste = rowsCpf && rowsCpf.length > 0;
 
     if (cpfJaExiste) {
       return res.status(400).json({
@@ -1166,7 +1187,6 @@ router.post('/registrarID', async (req, res) => {
 
 
 module.exports = router;
-
 
 
 
