@@ -174,14 +174,21 @@ router.post('/register', async (req, res) => {
   try {
     const senhaHash = await bcrypt.hash(senha, 10);
 
-    // 🔍 1. Busca em solicitantes_unicos (com CPF normalizado)
-    const candidatosUnicos = await prisma.solicitantes_unicos.findMany();
-    const existenteUnico = candidatosUnicos.find(entry => {
-      const cpfBanco = entry.cpf?.replace(/\D/g, '');
-      return cpfBanco === cpfLimpo;
-    });
+    console.log(req.body, 'body recebido dentro do try')
 
-     console.log(req.body, 'body recebido dentro do try')
+    // 🔍 1. Busca em solicitantes_unicos (otimizado: SQL direto)
+    let existenteUnico = await prisma.solicitantes_unicos.findFirst({ 
+      where: { cpf: cpfLimpo } 
+    });
+    
+    // Fallback: se não achou, tenta com SQL que remove pontuação
+    if (!existenteUnico) {
+      const rows = await prisma.$queryRawUnsafe(
+        "SELECT * FROM solicitantes_unicos WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
+        cpfLimpo
+      );
+      if (rows && rows.length) existenteUnico = rows[0];
+    }
 
     // ❌ Se já tem senha definida → bloqueia
     if (existenteUnico && existenteUnico.senha?.trim()) {
@@ -190,12 +197,19 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 🔍 2. Busca em solicitantes com CPF normalizado
-    const candidatosSolicitantes = await prisma.solicitantes.findMany();
-    const solicitanteExistente = candidatosSolicitantes.find(entry => {
-      const cpfBanco = entry.cpf?.replace(/\D/g, '');
-      return cpfBanco === cpfLimpo;
+    // 🔍 2. Busca em solicitantes (otimizado: SQL direto)
+    let solicitanteExistente = await prisma.solicitantes.findFirst({ 
+      where: { cpf: cpfLimpo } 
     });
+    
+    // Fallback: se não achou, tenta com SQL que remove pontuação
+    if (!solicitanteExistente) {
+      const rows2 = await prisma.$queryRawUnsafe(
+        "SELECT * FROM solicitantes WHERE REPLACE(REPLACE(REPLACE(cpf, '.', ''), '-', ''), ' ', '') = ? LIMIT 1",
+        cpfLimpo
+      );
+      if (rows2 && rows2.length) solicitanteExistente = rows2[0];
+    }
 
     const { meio, zonaEleitoral, observacoes, liderId, liderNome, ...dadosSemMeio } = dados;
     let idFinal;
@@ -1072,7 +1086,6 @@ router.post('/registrarID', async (req, res) => {
 
 
 module.exports = router;
-
 
 
 
