@@ -178,11 +178,27 @@ router.post('/register', async (req, res) => {
   console.log(req.body, 'body recebido')
 
   try {
+    console.log('[START] Iniciando bcrypt.hash...');
     const senhaHash = await bcrypt.hash(senha, 10);
-    console.log(req.body, 'body recebido dentro do try')
+    console.log('[DONE] bcrypt.hash completo');
 
     // 🔍 1. Busca em solicitantes_unicos com SKIP LOCKED (não espera locks)
     let existenteUnico = null;
+    
+    console.log('[START] Tentando conectar ao banco...');
+    // Teste de conectividade básico
+    try {
+      await prisma.$queryRaw`SELECT 1 as test`;
+      console.log('[DONE] Conexão com banco OK');
+    } catch (dbErr) {
+      console.error('[ERROR] Falha ao conectar:', dbErr.message);
+      return res.status(503).json({ 
+        error: 'Banco indisponível',
+        message: 'Não conseguiu conectar ao banco. Verifique se está online.'
+      });
+    }
+    
+    console.log('[START] Consultando solicitantes_unicos...');
     try {
       const rows = await Promise.race([
         prisma.$queryRaw`
@@ -192,6 +208,7 @@ router.post('/register', async (req, res) => {
         `,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout queryRaw unicos')), 5000))
       ]);
+      console.log('[DONE] Query solicitantes_unicos completa');
       existenteUnico = rows[0] || null;
     } catch (err) {
       if (err.message.includes('Timeout')) {
@@ -208,23 +225,27 @@ router.post('/register', async (req, res) => {
           message: 'Há processos bloqueados no banco. Execute: SHOW FULL PROCESSLIST; e mate processos com Time > 10.'
         });
       }
+      console.error('[ERROR] Erro na query unicos:', err.message);
       throw err;
     }
 
     // ❌ Se já tem senha definida → bloqueia
     if (existenteUnico && existenteUnico.senha?.trim()) {
+      console.log('[ABORT] CPF já cadastrado com senha');
       return res.status(400).json({
         error: 'Já existe um usuário com este CPF e senha definida. Faça login ou recupere sua senha.'
       });
     }
 
     // 🔍 2. Busca em solicitantes (SQL direto, timeout 5s)
+    console.log('[START] Consultando solicitantes...');
     let solicitanteExistente = null;
     try {
       const rows2 = await Promise.race([
         prisma.$queryRaw`SELECT * FROM solicitantes WHERE cpf = ${cpfLimpo} LIMIT 1`,
         new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout queryRaw solicitantes')), 5000))
       ]);
+      console.log('[DONE] Query solicitantes completa');
       solicitanteExistente = rows2[0] || null;
     } catch (err) {
       if (err.message.includes('Timeout')) {
@@ -234,19 +255,24 @@ router.post('/register', async (req, res) => {
           message: 'Consulta em solicitantes travou. Há processos bloqueados.'
         });
       }
+      console.error('[ERROR] Erro na query solicitantes:', err.message);
       throw err;
     }
 
+    console.log('[INFO] Preparando criação de registros...');
     const { meio, zonaEleitoral, observacoes, liderId, liderNome, ...dadosSemMeio } = dados;
     let idFinal;
 
-     console.log(dadosSemMeio, 'dados sem meio antes de chamar unicos')
+    console.log(dadosSemMeio, 'dados sem meio antes de chamar unicos')
 
     if (solicitanteExistente) {
+      console.log('[INFO] Solicitante já existe, usando ID:', solicitanteExistente.id);
       idFinal = solicitanteExistente.id;
 
       // ✅ Cria ou atualiza em solicitantes_unicos com mesmo ID
       if (!existenteUnico) {
+        console.log('[START] Criando em solicitantes_unicos...');
+        console.log('[START] Criando em solicitantes_unicos...');
         await prisma.solicitantes_unicos.create({
           data: {
             id: idFinal,
@@ -257,7 +283,9 @@ router.post('/register', async (req, res) => {
             ...dadosSemMeio
           }
         });
+        console.log('[DONE] solicitantes_unicos criado');
       } else {
+        console.log('[START] Atualizando solicitantes_unicos...');
         await prisma.solicitantes_unicos.update({
           where: { id: existenteUnico.id },
           data: {
@@ -267,8 +295,10 @@ router.post('/register', async (req, res) => {
             ...dadosSemMeio
           }
         });
+        console.log('[DONE] solicitantes_unicos atualizado');
       }
 
+      console.log('[SUCCESS] Registro completo');
       return res.json({
         message: 'Solicitante vinculado ao CPF existente em solicitantes',
         id: idFinal
@@ -276,15 +306,18 @@ router.post('/register', async (req, res) => {
     }
 
     // 🆕 3. Se não existe em nenhuma, cria nas duas com mesmo ID
+    console.log('[START] Criando novo solicitante...');
     const novoSolicitante = await prisma.solicitantes.create({
       data: {
         cpf: cpfLimpo,
         ...dadosSemMeio // "meio" não vai aqui
       }
     });
+    console.log('[DONE] Novo solicitante criado, ID:', novoSolicitante.id);
 
     idFinal = novoSolicitante.id;
 
+    console.log('[START] Criando registro em solicitantes_unicos com ID:', idFinal);
     const novoUnico = await prisma.solicitantes_unicos.create({
       data: {
         id: idFinal,
@@ -297,7 +330,9 @@ router.post('/register', async (req, res) => {
         ...dadosSemMeio
       }
     });
+    console.log('[DONE] solicitantes_unicos criado');
 
+    console.log('[SUCCESS] Registro completo para novo solicitante');
     return res.json({
       message: 'Novo solicitante criado com sucesso nas duas tabelas',
       solicitante: novoSolicitante,
@@ -305,6 +340,7 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (error) {
+    console.error('[ERROR GERAL]', error.message, error.stack);
     console.error('Erro ao registrar:', error);
     return res.status(500).json({
       error: 'Erro ao registrar solicitante',
