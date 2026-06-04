@@ -146,12 +146,21 @@ router.post('/', async (req, res) => {
       indicadoPor
     } = req.body;
 
-    // 1. Mapear valores para os enums corretos
-    const reincidenciaEnum = reincidencia === 'N_o' ? 'N_o' : 'Sim';
+    // 1. Mapear valores para os enums corretos do MySQL
+    const reincidenciaEnum = reincidencia === 'N_o' || reincidencia === 'Não' ? 'Não' : 'Sim';
     const meioSolicitacaoEnum = meioSolicitacao === 'WhatsApp' ? 'WhatsApp' : 'Presencial';
-    const statusEnum = status === 'Aguardando_Retorno' ? 'Aguardando_Retorno' :
-                      status === 'Conclu_da' ? 'Conclu_da' : 
-                      status === 'Cancelada' ? 'Cancelada' : 'Pendente';
+    
+    // Status: mapear para valores do banco (com @map aplicado)
+    let statusEnum = 'Pendente'; // default
+    if (status === 'Aguardando_Retorno' || status === 'Aguardando Retorno') {
+      statusEnum = 'Aguardando Retorno';
+    } else if (status === 'Conclu_da' || status === 'Concluída') {
+      statusEnum = 'Concluída';
+    } else if (status === 'Cancelada') {
+      statusEnum = 'Cancelada';
+    }
+    
+    console.log('[DEBUG] Status mapeado:', status, '->', statusEnum);
 
     function parseData(data) {
       if (!data || isNaN(Date.parse(data))) return null;
