@@ -268,11 +268,104 @@ router.get('/proximo-protocolo', async (req, res) => {
 });
 
 //Listar
+// router.get('/', async (req, res) => {
+//   try {
+//     // Query params suportados: page, limit, solicitanteId, protocolo, status, dateFrom, dateTo, search
+//     const page = Math.max(parseInt(req.query.page) || 1, 1);
+//     const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 200); // protege contra requests gigantes
+//     const skip = (page - 1) * limit;
+
+//     const {
+//       solicitanteId,
+//       protocolo,
+//       status,
+//       dateFrom,
+//       dateTo,
+//       search
+//     } = req.query;
+
+//     const where = {};
+
+//     if (solicitanteId) where.solicitanteId = parseInt(solicitanteId);
+//     if (protocolo) where.protocolo = { contains: protocolo };
+//     if (status) where.status = status;
+//     if (dateFrom || dateTo) {
+//       where.dataSolicitacao = {};
+//       if (dateFrom && !isNaN(Date.parse(dateFrom))) where.dataSolicitacao.gte = new Date(dateFrom);
+//       if (dateTo && !isNaN(Date.parse(dateTo))) where.dataSolicitacao.lte = new Date(dateTo);
+//     }
+//     if (search) {
+//       // Busca simples em solicitant, protocolo e observacoes
+//       where.OR = [
+//         { solicitant: { contains: search } },
+//         { protocolo: { contains: search } },
+//         { observacoes: { contains: search } }
+//       ];
+//     }
+
+//     // Total para paginação
+//     const total = await prisma.demandas.count({ where });
+
+//     const returnAll = String(req.query.all || '').toLowerCase() === 'true'
+
+//     let lista
+//     if (returnAll) {
+//       // Retorna todas as demandas (sem skip/take) - use com cuidado em bases grandes
+//       lista = await prisma.demandas.findMany({
+//         where,
+//         include: {
+//           solicitantes: {
+//             select: { id: true, nomeCompleto: true, cpf: true, telefoneContato: true, email: true }
+//           }
+//         },
+//         orderBy: { dataSolicitacao: 'desc' }
+//       })
+
+//       res.json({
+//         meta: { total, page: 1, limit: lista.length, pages: 1 },
+//         data: lista
+//       })
+//       return
+//     }
+
+//     const listaPaginated = await prisma.demandas.findMany({
+//       where,
+//       include: {
+//         // incluir apenas campos necessários do solicitante para performance
+//         solicitantes: {
+//           select: { id: true, nomeCompleto: true, cpf: true, telefoneContato: true, email: true }
+//         }
+//       },
+//       orderBy: { dataSolicitacao: 'desc' },
+//       skip,
+//       take: limit
+//     });
+
+//     res.json({
+//       meta: {
+//         total,
+//         page,
+//         limit,
+//         pages: Math.ceil(total / limit)
+//       },
+//       data: listaPaginated
+//     });
+//   } catch (error) {
+//     console.error('Erro ao buscar demandas:', {
+//       message: error.message,
+//       code: error.code,
+//       meta: error.meta
+//     });
+//     res.status(500).json({ error: 'Erro ao buscar demandas', details: error.message });
+//   }
+// });
+
+
+// Listar demandas
 router.get('/', async (req, res) => {
   try {
-    // Query params suportados: page, limit, solicitanteId, protocolo, status, dateFrom, dateTo, search
     const page = Math.max(parseInt(req.query.page) || 1, 1);
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 200); // protege contra requests gigantes
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 200);
     const skip = (page - 1) * limit;
 
     const {
@@ -286,57 +379,121 @@ router.get('/', async (req, res) => {
 
     const where = {};
 
-    if (solicitanteId) where.solicitanteId = parseInt(solicitanteId);
-    if (protocolo) where.protocolo = { contains: protocolo };
-    if (status) where.status = status;
+    // Dados vindos do token pelo authMiddleware
+    const usuarioLogadoId = Number(req.user?.id);
+    const isAdmin =
+      req.user?.adm === true ||
+      req.user?.adm === 'true' ||
+      req.user?.adm === 1;
+
+    if (!usuarioLogadoId) {
+      return res.status(401).json({
+        error: 'Usuário não identificado no token'
+      });
+    }
+
+    /**
+     * REGRA PRINCIPAL:
+     * - Admin vê tudo
+     * - Usuário comum vê somente demandas dele
+     */
+    if (!isAdmin) {
+      where.solicitanteId = usuarioLogadoId;
+    }
+
+    /**
+     * Se for admin, permite filtrar por solicitanteId se vier na query.
+     * Usuário comum NÃO pode sobrescrever isso.
+     */
+    if (isAdmin && solicitanteId) {
+      where.solicitanteId = parseInt(solicitanteId);
+    }
+
+    if (protocolo) {
+      where.protocolo = { contains: protocolo };
+    }
+
+    if (status && status !== 'Todos') {
+      where.status = status;
+    }
+
     if (dateFrom || dateTo) {
       where.dataSolicitacao = {};
-      if (dateFrom && !isNaN(Date.parse(dateFrom))) where.dataSolicitacao.gte = new Date(dateFrom);
-      if (dateTo && !isNaN(Date.parse(dateTo))) where.dataSolicitacao.lte = new Date(dateTo);
+
+      if (dateFrom && !isNaN(Date.parse(dateFrom))) {
+        where.dataSolicitacao.gte = new Date(dateFrom);
+      }
+
+      if (dateTo && !isNaN(Date.parse(dateTo))) {
+        const endDate = new Date(dateTo);
+        endDate.setHours(23, 59, 59, 999);
+        where.dataSolicitacao.lte = endDate;
+      }
     }
+
     if (search) {
-      // Busca simples em solicitant, protocolo e observacoes
       where.OR = [
         { solicitant: { contains: search } },
         { protocolo: { contains: search } },
-        { observacoes: { contains: search } }
+        { observacoes: { contains: search } },
+        {
+          solicitantes: {
+            nomeCompleto: { contains: search }
+          }
+        }
       ];
     }
 
-    // Total para paginação
     const total = await prisma.demandas.count({ where });
 
-    const returnAll = String(req.query.all || '').toLowerCase() === 'true'
+    const returnAll = String(req.query.all || '').toLowerCase() === 'true';
 
-    let lista
     if (returnAll) {
-      // Retorna todas as demandas (sem skip/take) - use com cuidado em bases grandes
-      lista = await prisma.demandas.findMany({
+      const lista = await prisma.demandas.findMany({
         where,
         include: {
           solicitantes: {
-            select: { id: true, nomeCompleto: true, cpf: true, telefoneContato: true, email: true }
+            select: {
+              id: true,
+              nomeCompleto: true,
+              cpf: true,
+              telefoneContato: true,
+              email: true
+            }
           }
         },
-        orderBy: { dataSolicitacao: 'desc' }
-      })
+        orderBy: {
+          dataSolicitacao: 'desc'
+        }
+      });
 
-      res.json({
-        meta: { total, page: 1, limit: lista.length, pages: 1 },
+      return res.json({
+        meta: {
+          total,
+          page: 1,
+          limit: lista.length,
+          pages: 1
+        },
         data: lista
-      })
-      return
+      });
     }
 
     const listaPaginated = await prisma.demandas.findMany({
       where,
       include: {
-        // incluir apenas campos necessários do solicitante para performance
         solicitantes: {
-          select: { id: true, nomeCompleto: true, cpf: true, telefoneContato: true, email: true }
+          select: {
+            id: true,
+            nomeCompleto: true,
+            cpf: true,
+            telefoneContato: true,
+            email: true
+          }
         }
       },
-      orderBy: { dataSolicitacao: 'desc' },
+      orderBy: {
+        dataSolicitacao: 'desc'
+      },
       skip,
       take: limit
     });
@@ -346,20 +503,24 @@ router.get('/', async (req, res) => {
         total,
         page,
         limit,
-        pages: Math.ceil(total / limit)
+        pages: Math.ceil(total / limit) || 1
       },
       data: listaPaginated
     });
+
   } catch (error) {
     console.error('Erro ao buscar demandas:', {
       message: error.message,
       code: error.code,
       meta: error.meta
     });
-    res.status(500).json({ error: 'Erro ao buscar demandas', details: error.message });
+
+    res.status(500).json({
+      error: 'Erro ao buscar demandas',
+      details: error.message
+    });
   }
 });
-
 
 
 
